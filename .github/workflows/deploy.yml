@@ -1,0 +1,63 @@
+name: Deploy mssucursales to VPS
+
+on:
+  push:
+    branches: [ "dev" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build JAR (mssucursales)
+        run: mvn -q -DskipTests clean package
+        working-directory: .
+
+      - name: Verificar artefactos
+        run: |
+          ls -lah
+          ls -lah target || true
+
+      - name: Upload JAR to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "target/mssucursales.jar"
+          target: "/root/impulsofirme/backend/mssucursales/"
+          overwrite: true
+          strip_components: 1
+
+      - name: Restart mssucursales on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -euxo pipefail
+            cd /root/impulsofirme/backend/mssucursales
+      
+            # si por error app.jar es un directorio, bórralo
+            [ -d app.jar ] && rm -rf app.jar
+      
+            rm -f app.jar
+            mv mssucursales.jar app.jar
+            ls -lh app.jar
+      
+            cd /root/impulsofirme
+            docker compose down mssucursales
+            docker compose up -d mssucursales
+            docker logs mssucursales --tail=50
